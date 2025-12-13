@@ -1,0 +1,59 @@
+{
+  "lincos_symbols": [
+    {
+      "symbol": "+",
+      "meaning": "сложение",
+      "category": "math"
+    },
+    {
+      "symbol": "-",
+      "meaning": "вычитание",
+      "category": "math"
+    },
+    {
+      "symbol": "*",
+      "meaning": "умножение",
+      "category": "math"
+    },
+    {
+      "symbol": "/",
+      "meaning": "деление",
+      "category": "math"
+    },
+    {
+      "symbol": "=",
+      "meaning": "равно",
+      "category": "math"
+    },
+    {
+      "symbol": ">",
+      "meaning": "больше",
+      "category": "comparison"
+    },
+    {
+      "symbol": "<",
+      "meaning": "меньше",
+      "category": "comparison"
+    },
+    {
+      "symbol": "∈",
+      "meaning": "принадлежит",
+      "category": "logic"
+    },
+    {
+      "symbol": "∧",
+      "meaning": "для всех",
+      "category": "logic"
+    },
+    {
+      "symbol": "∨",
+      "meaning": "существует",
+      "category": "logic"
+    },
+    {
+      "symbol": "→",
+      "meaning": "импликация",
+      "category": "logic"
+    }
+  ]
+}
