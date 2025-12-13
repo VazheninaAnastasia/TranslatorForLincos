@@ -4,7 +4,6 @@
 
 import flet as ft              # Основная библиотека для GUI
 import torch                   # Для загрузки и работы с PyTorch-моделью
-import re                      # Используется внутри Vocabulary (импортирован из learning_data)
 # Импортируем компоненты модели и конфигурации из основного модуля обучения
 from learning_data import Encoder, Decoder, Seq2Seq, Config
 
@@ -154,9 +153,10 @@ def main(page: ft.Page):
     )
 
     # === КНОПКИ ===
+    # ИСПРАВЛЕНИЕ 1: ft.Icons вместо ft.icons
     translate_button = ft.ElevatedButton(
         content=ft.Row([
-            ft.Icon(ft.icons.TRANSLATE, color=ft.Colors.WHITE),
+            ft.Icon(ft.Icons.TRANSLATE, color=ft.Colors.WHITE),
             ft.Text("Перевести", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
         ]),
         bgcolor=ft.Colors.BLUE_600,
@@ -171,7 +171,7 @@ def main(page: ft.Page):
 
     delete_button = ft.ElevatedButton(
         content=ft.Row([
-            ft.Icon(ft.icons.DELETE, color=ft.Colors.WHITE),
+            ft.Icon(ft.Icons.DELETE, color=ft.Colors.WHITE),
             ft.Text("Сбросить", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
         ]),
         bgcolor=ft.Colors.GREY_600,
@@ -251,9 +251,10 @@ def main(page: ft.Page):
     progress_ring = ft.ProgressRing(visible=False)  # Круговая анимация загрузки
 
     # === СТАТУС ЗАГРУЗКИ МОДЕЛИ ===
+    # ИСПРАВЛЕНИЕ 2: ft.Icons вместо ft.icons
     model_status = ft.Container(
         content=ft.Row([
-            ft.Icon(ft.icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=20),
+            ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN, size=20),
             ft.Text("Модель загружена и готова к работе",
                     color=ft.Colors.GREEN_700),
         ]),

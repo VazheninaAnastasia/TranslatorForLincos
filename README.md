@@ -27,7 +27,7 @@
    ```
    Windows
    ```bash
-   venv\Scripts\activate
+   source venv/Scripts/activate
    ```
    
 4. Установите зависимости:
