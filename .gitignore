@@ -1,0 +1,33 @@
+# PyCharm
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs и кэши
+*.log
+.cache/
+.pytest_cache/
+
+# Данные моделей и датасеты
+*.pth
+*.pt
+*.h5
+*.pkl
+*.pickle
+*.csv
+*.json
+
+# Временные файлы
+*.tmp
+*.temp
