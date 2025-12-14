@@ -18,7 +18,7 @@ venv.bak/
 *.log
 .cache/
 .pytest_cache/
-
+.pth
 # Временные файлы
 *.tmp
 *.temp
