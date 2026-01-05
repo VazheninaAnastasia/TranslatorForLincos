@@ -59,8 +59,5 @@ python -m venv venv
 
    ```bash
    python visual_for_user.py
-<<<<<<< HEAD
    ```
-=======
-   ```
->>>>>>> 29fdb3c428328a3d6354ba3252ec3b31443e78b7
+

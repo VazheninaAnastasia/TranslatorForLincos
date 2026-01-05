@@ -34,7 +34,7 @@ class Config:
         self.dropout = 0.3
         self.learning_rate = 0.001
         self.epochs = 40
-        self.max_length = 50
+        self.max_length = 150
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
