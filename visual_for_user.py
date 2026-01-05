@@ -118,7 +118,7 @@ def main(page: ft.Page):
     )
 
     input_field = ft.TextField(
-        label="Введите текст на русском",
+        label="Введите текст на русском (ограничение на ввод 50 символов)",
         multiline=True,
         min_lines=3,
         max_lines=5,
