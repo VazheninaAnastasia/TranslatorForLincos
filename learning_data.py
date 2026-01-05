@@ -1,52 +1,68 @@
-# Импорт необходимых библиотек
-import json                      # для работы с JSON-файлами
-import pandas as pd              # для загрузки и обработки табличных данных
-import torch                     # основная библиотека PyTorch
-import torch.nn as nn            # модули нейросетей
-import torch.optim as optim      # оптимизаторы
-from torch.utils.data import Dataset, DataLoader  # для создания пользовательских датасетов и загрузчиков
-import matplotlib                # для визуализации
-# matplotlib.use('Agg')         # (закомментировано) позволяет рендерить графики без GUI (для серверов)
-import matplotlib.pyplot as plt  # построение графиков
-import re                        # регулярные выражения для токенизации
-from collections import Counter  # подсчёт частоты слов
-import os                        # работа с файловой системой
+import json
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import matplotlib
+import matplotlib.pyplot as plt
+import re
+from collections import Counter
+import os
 
 
-# Класс конфигурации гиперпараметров модели
 class Config:
+    """Конфигурация параметров модели и обучения.
+
+    Атрибуты:
+        batch_size (int): Количество примеров в одном батче.
+        embedding_dim (int): Размерность слов.
+        hidden_dim (int): Размер скрытого состояния в LSTM.
+        num_layers (int): Количество слоёв в LSTM.
+        dropout (float): Вероятность отключения для регуляризации.
+        learning_rate (float): Скорость обучения оптимизатора Adam.
+        epochs (int): Общее количество эпох обучения.
+        max_length (int): Максимальная длина последовательности (с учётом токенов <SOS>, <EOS>).
+        device (torch.device): Устройство для вычислений — GPU, если доступен, иначе CPU.
+    """
+
     def __init__(self):
-        self.batch_size = 32          # размер мини-батча
-        self.embedding_dim = 256      # размерность эмбеддингов
-        self.hidden_dim = 512         # размер скрытого состояния LSTM
-        self.num_layers = 2           # количество слоёв в LSTM
-        self.dropout = 0.3            # вероятность отключения нейронов для регуляризации
-        self.learning_rate = 0.001    # скорость обучения
-        self.epochs = 40              # количество эпох обучения
-        self.max_length = 50          # максимальная длина последовательности (с учётом <SOS> и <EOS>)
-        # Автоматический выбор устройства: GPU, если доступен, иначе CPU
+        self.batch_size = 32
+        self.embedding_dim = 256
+        self.hidden_dim = 512
+        self.num_layers = 2
+        self.dropout = 0.3
+        self.learning_rate = 0.001
+        self.epochs = 40
+        self.max_length = 50
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-# Класс Vocabulary — управляет словарём токенов (отображение слов в индексы и наоборот)
 class Vocabulary:
+    """Управляет словарём токенов: от построения до перевода слов в индексы и обратно.
+
+    Инициализируется с базовыми служебными токенами: <PAD>, <SOS>, <EOS>, <UNK>.
+    """
+
     def __init__(self):
-        # Специальные токены:
-        # <PAD> — заполнение до одинаковой длины
-        # <SOS> — начало последовательности
-        # <EOS> — конец последовательности
-        # <UNK> — неизвестное слово
         self.word2idx = {'<PAD>': 0, '<SOS>': 1, '<EOS>': 2, '<UNK>': 3}
         self.idx2word = {0: '<PAD>', 1: '<SOS>', 2: '<EOS>', 3: '<UNK>'}
-        self.word_count = Counter()   # счётчик частоты слов
+        self.word_count = Counter()
 
     def build_vocabulary(self, sentences, min_freq=1):
-        """Создаёт словарь на основе списка предложений."""
+        """Строит словарь на основе списка предложений.
+
+        Токенизирует все предложения, считает частоту токенов и добавляет в словарь
+        только те, чья частота >= min_freq.
+
+        Args:
+            sentences (list[str]): Список текстовых предложений.
+            min_freq (int): Минимальная частота токена для включения в словарь.
+        """
         for sentence in sentences:
             words = self.tokenize(sentence)
             self.word_count.update(words)
 
-        # Добавляем слова, встретившиеся не реже min_freq раз
         for word, count in self.word_count.items():
             if count >= min_freq and word not in self.word2idx:
                 idx = len(self.word2idx)
@@ -54,27 +70,55 @@ class Vocabulary:
                 self.idx2word[idx] = word
 
     def tokenize(self, text):
-        """Разбивает текст на токены: слова, знаки препинания, математические символы."""
-        # Регулярное выражение:
-        # \b\w+\b — обычные слова,
-        # [+\-*/=∈∀∃→∧∨¬<>≤≥] — математические и логические символы,
-        # [.,!?;] — пунктуация
+        """Разбивает текст на токены: слова, математические символы, знаки препинания.
+
+        Латинские и кириллические слова приводятся к нижнему регистру.
+        Специальные символы (например, ∈, →, ∀) сохраняются как есть.
+
+        Args:
+            text (str): Исходный текст.
+
+        Returns:
+            list[str]: Список токенов.
+        """
         tokens = re.findall(r'\b\w+\b|[+*/=∈∀∃→∧∨¬<>≤≥-]|[.,!?;]', text)
-        # Приведение букв к нижнему регистру, но не для символов
         return [token.lower() if token.isalpha() else token for token in tokens]
 
     def numericalize(self, text):
-        """Преобразует текст в последовательность индексов."""
+        """Преобразует текст в последовательность индексов из словаря.
+
+        Неизвестные токены заменяются на <UNK>.
+
+        Args:
+            text (str): Исходный текст.
+
+        Returns:
+            list[int]: Список индексов.
+        """
         tokens = self.tokenize(text)
         return [self.word2idx.get(token, self.word2idx['<UNK>']) for token in tokens]
 
     def __len__(self):
-        return len(self.word2idx)  # возвращает размер словаря
+        """Возвращает размер словаря (количество уникальных токенов)."""
+        return len(self.word2idx)
 
 
-# Класс датасета для параллельного корпуса перевода (русский → Lincos)
 class TranslationDataset(Dataset):
+    """Набор данных для задачи перевода с русского на Lincos (или наоборот).
+
+    Каждый элемент — пара тензоров фиксированной длины (с паддингом),
+    представляющих исходное и целевое предложения, обрамлённые токенами <SOS>/<EOS>.
+    """
+
     def __init__(self, russian_sentences, lincos_sentences, ru_vocab, lincos_vocab, max_length):
+        """
+        Args:
+            russian_sentences (list[str]): Список предложений на русском.
+            lincos_sentences (list[str]): Список соответствующих предложений на Lincos.
+            ru_vocab (Vocabulary): Словарь для русского языка.
+            lincos_vocab (Vocabulary): Словарь для Lincos.
+            max_length (int): Максимальная длина последовательности (включая <SOS>/<EOS>).
+        """
         self.russian_sentences = russian_sentences
         self.lincos_sentences = lincos_sentences
         self.ru_vocab = ru_vocab
@@ -82,14 +126,26 @@ class TranslationDataset(Dataset):
         self.max_length = max_length
 
     def __len__(self):
+        """Возвращает общее количество пар предложений."""
         return len(self.russian_sentences)
 
     def __getitem__(self, idx):
-        # Получаем пару предложений
+        """Возвращает пару тензоров: (русское предложение, Lincos-предложение).
+
+        Оба тензора:
+          - начинаются с <SOS>, заканчиваются <EOS>,
+          - обрезаются до max_length,
+          - дополняются <PAD> до фиксированной длины.
+
+        Args:
+            idx (int): Индекс пары.
+
+        Returns:
+            tuple[torch.LongTensor, torch.LongTensor]: Тензоры длины max_length.
+        """
         russian_text = self.russian_sentences[idx]
         lincos_text = self.lincos_sentences[idx]
 
-        # Преобразуем в числовые последовательности с <SOS> и <EOS>
         ru_numerical = [self.ru_vocab.word2idx['<SOS>']] + \
                        self.ru_vocab.numericalize(russian_text) + \
                        [self.ru_vocab.word2idx['<EOS>']]
@@ -98,98 +154,160 @@ class TranslationDataset(Dataset):
                            self.lincos_vocab.numericalize(lincos_text) + \
                            [self.lincos_vocab.word2idx['<EOS>']]
 
-        # Обрезаем до max_length
         ru_numerical = ru_numerical[:self.max_length]
         lincos_numerical = lincos_numerical[:self.max_length]
 
-        # Добавляем паддинг до фиксированной длины
         ru_padding = [self.ru_vocab.word2idx['<PAD>']] * (self.max_length - len(ru_numerical))
         lincos_padding = [self.lincos_vocab.word2idx['<PAD>']] * (self.max_length - len(lincos_numerical))
 
-        # Преобразуем в тензоры
         ru_tensor = torch.tensor(ru_numerical + ru_padding, dtype=torch.long)
         lincos_tensor = torch.tensor(lincos_numerical + lincos_padding, dtype=torch.long)
 
         return ru_tensor, lincos_tensor
 
 
-# Энкодер: преобразует входную последовательность в скрытое состояние
 class Encoder(nn.Module):
+    """Кодировщик последовательности на основе LSTM.
+
+    Преобразует входную последовательность (например, на русском) в скрытое состояние,
+    которое передаётся декодеру.
+    """
+
     def __init__(self, input_dim, emb_dim, hidden_dim, num_layers, dropout):
+        """
+        Args:
+            input_dim (int): Размер входного словаря.
+            emb_dim (int): Размерность эмбеддингов.
+            hidden_dim (int): Размерность скрытого состояния LSTM.
+            num_layers (int): Количество слоёв LSTM.
+            dropout (float): Вероятность dropout после эмбеддинга и между LSTM-слоями.
+        """
         super().__init__()
-        self.embedding = nn.Embedding(input_dim, emb_dim)  # эмбеддинг входных токенов
+        self.embedding = nn.Embedding(input_dim, emb_dim)
         self.rnn = nn.LSTM(emb_dim, hidden_dim, num_layers, dropout=dropout, batch_first=True)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, src):
-        embedded = self.dropout(self.embedding(src))        # применяем эмбеддинг и dropout
-        outputs, (hidden, cell) = self.rnn(embedded)        # пропускаем через LSTM
-        return hidden, cell                                 # возвращаем скрытые состояния
+        """Пропускает последовательность через кодировщик.
+
+        Args:
+            src (torch.LongTensor): Входной тензор формы (batch_size, seq_len).
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Кортеж (hidden, cell) последнего слоя LSTM.
+        """
+        embedded = self.dropout(self.embedding(src))
+        outputs, (hidden, cell) = self.rnn(embedded)
+        return hidden, cell
 
 
-# Декодер: генерирует целевую последовательность по состоянию от энкодера
 class Decoder(nn.Module):
+    """Декодер последовательности на основе LSTM.
+
+    Генерирует выходную последовательность (например, на Lincos) пошагово,
+    используя скрытое состояние от кодировщика и предыдущие предсказания.
+    """
+
     def __init__(self, output_dim, emb_dim, hidden_dim, num_layers, dropout):
+        """
+        Args:
+            output_dim (int): Размер выходного словаря.
+            emb_dim (int): Размерность эмбеддингов.
+            hidden_dim (int): Размерность скрытого состояния LSTM.
+            num_layers (int): Количество слоёв LSTM.
+            dropout (float): Вероятность dropout после эмбеддинга.
+        """
         super().__init__()
         self.output_dim = output_dim
         self.embedding = nn.Embedding(output_dim, emb_dim)
         self.rnn = nn.LSTM(emb_dim, hidden_dim, num_layers, dropout=dropout, batch_first=True)
-        self.fc_out = nn.Linear(hidden_dim, output_dim)     # линейный слой для предсказания следующего токена
+        self.fc_out = nn.Linear(hidden_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, input, hidden, cell):
-        # input — текущий токен (скаляр на батч)
-        input = input.unsqueeze(1)                          # добавляем размерность последовательности (batch, 1)
+        """Генерирует следующий токен на основе текущего входа и состояния LSTM.
+
+        Args:
+            input (torch.LongTensor): Текущий входной токен, форма (batch_size,).
+            hidden (torch.Tensor): Скрытое состояние от предыдущего шага.
+            cell (torch.Tensor): Ячейка памяти LSTM от предыдущего шага.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                - логиты для следующего токена (batch_size, output_dim),
+                - новое скрытое состояние,
+                - новая ячейка памяти.
+        """
+        input = input.unsqueeze(1)  # (batch_size, 1)
         embedded = self.dropout(self.embedding(input))
         output, (hidden, cell) = self.rnn(embedded, (hidden, cell))
-        prediction = self.fc_out(output.squeeze(1))         # (batch, output_dim)
+        prediction = self.fc_out(output.squeeze(1))
         return prediction, hidden, cell
 
 
-# Полная Seq2Seq модель: объединяет энкодер и декодер
 class Seq2Seq(nn.Module):
+    """Полная модель sequence-to-sequence с кодировщиком и декодером.
+
+    Поддерживает teacher forcing во время обучения.
+    """
+
     def __init__(self, encoder, decoder, device):
+        """
+        Args:
+            encoder (Encoder): Экземпляр кодировщика.
+            decoder (Decoder): Экземпляр декодера.
+            device (torch.device): Устройство для тензоров.
+        """
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.device = device
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
-        """
-        src: (batch, src_len) — входные русские предложения
-        trg: (batch, trg_len) — целевые Lincos-предложения
-        teacher_forcing_ratio — вероятность использовать ground truth вместо предсказания на шаге t
+        """Выполняет прямой проход модели.
+
+        Args:
+            src (torch.LongTensor): Входная последовательность, форма (batch_size, src_len).
+            trg (torch.LongTensor): Целевая последовательность, форма (batch_size, trg_len).
+            teacher_forcing_ratio (float): Вероятность использовать ground-truth токен вместо предсказанного.
+
+        Returns:
+            torch.Tensor: Выходные логиты, форма (batch_size, trg_len, output_dim).
         """
         batch_size = trg.shape[0]
         trg_len = trg.shape[1]
         trg_vocab_size = self.decoder.output_dim
 
-        # Массив для хранения выходов на каждом шаге
         outputs = torch.zeros(batch_size, trg_len, trg_vocab_size).to(self.device)
-
-        # Получаем скрытые состояния от энкодера
         hidden, cell = self.encoder(src)
+        input = trg[:, 0]  # <SOS> токен
 
-        # Первый вход декодеру — <SOS>
-        input = trg[:, 0]  # (batch,)
-
-        # Генерация токенов пошагово
         for t in range(1, trg_len):
             output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[:, t] = output
-
-            # Решаем: использовать ли true токен (teacher forcing) или предсказанный
             teacher_force = torch.rand(1) < teacher_forcing_ratio
-            top1 = output.argmax(1)  # наиболее вероятный токен
+            top1 = output.argmax(1)
             input = trg[:, t] if teacher_force else top1
 
         return outputs
 
 
-# === ФУНКЦИИ ЗАГРУЗКИ ДАННЫХ ===
-
 def load_data():
-    """Загружает данные из CSV или JSONL файлов."""
+    """Загружает обучающие и тестовые данные из CSV или JSONL.
+
+    Сначала пытается найти файлы в формате CSV:
+        - lincos_dataset/train/train.csv
+        - lincos_dataset/test/test.csv
+    Если не найдены — ищет JSONL-файлы:
+        - train/train.jsonl
+        - test/test.jsonl
+
+    Возвращает pandas.DataFrame с колонками ['russian', 'lincos'].
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
+            Обучающий и тестовый датафреймы, либо (None, None), если файлы не найдены.
+    """
     try:
         train_df = pd.read_csv('lincos_dataset/train/train.csv')
         test_df = pd.read_csv('lincos_dataset/test/test.csv')
@@ -214,8 +332,16 @@ def load_data():
             print("Файлы данных не найдены!")
             return None, None
 
+
 def load_vocabulary():
-    """(Не используется в основном коде) — загрузка предварительно сохранённого словаря Lincos."""
+    """Загружает предварительно сохранённый словарь Lincos из JSON-файла (устаревшая функция).
+
+    В текущей реализации словарь строится динамически, но функция оставлена на случай
+    восстановления из кэша.
+
+    Returns:
+        dict | None: Словарь word → index или None, если файл не найден.
+    """
     try:
         with open('vocabulary/lincos_vocabulary.json', 'r', encoding='utf-8') as f:
             vocab_data = json.load(f)
@@ -225,10 +351,19 @@ def load_vocabulary():
         return None
 
 
-# === ФУНКЦИИ ОБУЧЕНИЯ И ОЦЕНКИ ===
-
 def train_model(model, iterator, optimizer, criterion, clip):
-    """Обучает модель на одной эпохе."""
+    """Выполняет одну эпоху обучения модели.
+
+    Args:
+        model (Seq2Seq): Обучаемая модель.
+        iterator (DataLoader): Итератор по обучающим данным.
+        optimizer (torch.optim.Optimizer): Оптимизатор.
+        criterion (nn.Module): Функция потерь.
+        clip (float): Максимальная норма градиента для clipping'а.
+
+    Returns:
+        float: Среднее значение функции потерь за эпоху.
+    """
     model.train()
     epoch_loss = 0
 
@@ -237,17 +372,15 @@ def train_model(model, iterator, optimizer, criterion, clip):
         trg = trg.to(config.device)
 
         optimizer.zero_grad()
-        output = model(src, trg)  # (batch, trg_len, output_dim)
+        output = model(src, trg)
 
-        # Убираем первый токен (<SOS>) из выхода и целей при подсчёте лосса
         output_dim = output.shape[-1]
-        output = output[:, 1:].reshape(-1, output_dim)  # (batch*(trg_len-1), output_dim)
-        trg = trg[:, 1:].reshape(-1)                    # (batch*(trg_len-1),)
+        output = output[:, 1:].reshape(-1, output_dim)
+        trg = trg[:, 1:].reshape(-1)
 
         loss = criterion(output, trg)
         loss.backward()
 
-        # Обрезка градиентов для предотвращения взрыва градиентов
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
 
@@ -257,7 +390,16 @@ def train_model(model, iterator, optimizer, criterion, clip):
 
 
 def evaluate_model(model, iterator, criterion):
-    """Оценивает модель без обучения (без teacher forcing)."""
+    """Выполняет оценку модели на валидационном/тестовом наборе (без teacher forcing).
+
+    Args:
+        model (Seq2Seq): Модель для оценки.
+        iterator (DataLoader): Итератор по данным.
+        criterion (nn.Module): Функция потерь.
+
+    Returns:
+        float: Среднее значение функции потерь.
+    """
     model.eval()
     epoch_loss = 0
 
@@ -266,7 +408,7 @@ def evaluate_model(model, iterator, criterion):
             src = src.to(config.device)
             trg = trg.to(config.device)
 
-            output = model(src, trg, 0)  # teacher_forcing_ratio=0 → всегда используем предсказания
+            output = model(src, trg, 0)  # teacher_forcing_ratio = 0
 
             output_dim = output.shape[-1]
             output = output[:, 1:].reshape(-1, output_dim)
@@ -278,15 +420,13 @@ def evaluate_model(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-# === ОСНОВНАЯ ФУНКЦИЯ ===
-
 def main():
+    """Основная функция обучения: загрузка данных, построение словарей, обучение и сохранение модели."""
     global config
     config = Config()
 
     print(f"Используемое устройство: {config.device}")
 
-    # Загрузка данных
     train_df, test_df = load_data()
     if train_df is None:
         return
@@ -294,13 +434,11 @@ def main():
     print(f"Размер тренировочных данных: {len(train_df)}")
     print(f"Размер тестовых данных: {len(test_df)}")
 
-    # Извлечение текстов из DataFrame
     russian_train = train_df['russian'].tolist()
     lincos_train = train_df['lincos'].tolist()
     russian_test = test_df['russian'].tolist()
     lincos_test = test_df['lincos'].tolist()
 
-    # Построение словарей на основе обучающего и тестового корпуса
     ru_vocab = Vocabulary()
     lincos_vocab = Vocabulary()
     ru_vocab.build_vocabulary(russian_train + russian_test)
@@ -309,13 +447,11 @@ def main():
     print(f"Размер русского словаря: {len(ru_vocab)}")
     print(f"Размер словаря линкос: {len(lincos_vocab)}")
 
-    # Создание датасетов и загрузчиков
     train_dataset = TranslationDataset(russian_train, lincos_train, ru_vocab, lincos_vocab, config.max_length)
     test_dataset = TranslationDataset(russian_test, lincos_test, ru_vocab, lincos_vocab, config.max_length)
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False)
 
-    # Инициализация модели
     encoder = Encoder(
         input_dim=len(ru_vocab),
         emb_dim=config.embedding_dim,
@@ -332,16 +468,13 @@ def main():
     )
     model = Seq2Seq(encoder, decoder, config.device).to(config.device)
 
-    # Оптимизатор и функция потерь (игнорируем PAD при подсчёте loss)
     optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
     criterion = nn.CrossEntropyLoss(ignore_index=lincos_vocab.word2idx['<PAD>'])
 
-    # Списки для отслеживания лосса
     train_losses = []
     test_losses = []
     best_test_loss = float('inf')
 
-    # Цикл обучения
     for epoch in range(config.epochs):
         train_loss = train_model(model, train_loader, optimizer, criterion, clip=1)
         test_loss = evaluate_model(model, test_loader, criterion)
@@ -353,13 +486,11 @@ def main():
         print(f'\tTrain Loss: {train_loss:.3f}')
         print(f'\tTest Loss: {test_loss:.3f}')
 
-        # Каждые 5 эпох выполняется внешний скрипт testing.py (необычное поведение — возможно, для промежуточной проверки)
         if ((epoch + 1) % 5 == 0):
             with open('testing.py', 'r') as file:
                 code = file.read()
-                exec(code)  # ⚠️ осторожно: выполнение стороннего кода
+                exec(code)
 
-        # Сохранение лучшей модели по валидационному лоссу
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             torch.save({
@@ -372,7 +503,6 @@ def main():
                 'lincos_vocab': lincos_vocab
             }, 'best_model.pth')
 
-    # Построение и сохранение графика лосса
     plt.figure(figsize=(10, 5))
     plt.plot(train_losses, label='Train Loss')
     plt.plot(test_losses, label='Test Loss')
@@ -385,7 +515,6 @@ def main():
 
     print("Обучение завершено!")
 
-    # Сохранение словарей в JSON
     os.makedirs('models', exist_ok=True)
     with open('models/ru_vocab.json', 'w', encoding='utf-8') as f:
         json.dump(ru_vocab.word2idx, f, ensure_ascii=False, indent=2)
